@@ -107,3 +107,109 @@ def select_columns_gui(df, max_button_width=15, max_window_height=500, min_butto
 
     return df[selected_cols]
 
+""" Clean datasets by various selections """
+
+def filter_dataframe_by_checkboxes(df, max_unique_values=10):
+    selected_values = {}
+    float_columns = [col for col in df.columns if df[col].dtype == 'float64']
+
+    # Step 1: Get eligible object columns
+    eligible_columns = [
+        col for col in df.columns
+        if df[col].dtype == 'object' and df[col].nunique(dropna=False) <= max_unique_values
+    ]
+
+    if not eligible_columns and not float_columns:
+        print("No eligible object or float columns.")
+        return df
+
+    # Step 2: Tkinter window
+    root = tk.Tk()
+    root.title("Filter DataFrame by Values")
+    root.geometry("600x700")
+
+    # Frame for float column NaN removal options
+    float_frame = tk.LabelFrame(root, text="Remove rows with NaN in selected float columns")
+    float_frame.pack(fill="x", padx=10, pady=5)
+
+    float_vars = {}
+    for col in float_columns:
+        var = tk.BooleanVar(value=False)
+        cb = tk.Checkbutton(float_frame, text=col, variable=var)
+        cb.pack(anchor="w", padx=10)
+        float_vars[col] = var
+
+    # Outer layout: scrollable top + fixed bottom
+    outer_frame = tk.Frame(root)
+    outer_frame.pack(fill="both", expand=True)
+
+    canvas = tk.Canvas(outer_frame)
+    scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
+
+    scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    # Store checkbox variables per object column
+    checkbox_vars = {}
+
+    for col in eligible_columns:
+        tk.Label(scrollable_frame, text=f"{col}:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
+        frame = tk.Frame(scrollable_frame)
+        frame.pack(anchor="w", padx=20, pady=2)
+
+        values = df[col].dropna().unique().tolist()
+        if df[col].isnull().any():
+            values.append(None)
+
+        checkbox_vars[col] = {}
+        for val in values:
+            label = str(val) if val is not None else "<NaN>"
+            var = tk.BooleanVar(value=False)
+            cb = tk.Checkbutton(frame, text=label, variable=var, anchor="w")
+            cb.pack(anchor="w")
+            checkbox_vars[col][val] = var
+
+    # Submit logic
+    def submit():
+        for col, value_vars in checkbox_vars.items():
+            selected = [
+                val for val, var in value_vars.items()
+                if var.get()
+            ]
+            if selected:
+                selected_values[col] = selected
+        root.quit()
+
+    # Fixed submit button
+    bottom_frame = tk.Frame(root)
+    bottom_frame.pack(fill="x")
+    submit_btn = tk.Button(bottom_frame, text="Apply Filter", command=submit)
+    submit_btn.pack(pady=10)
+
+    root.mainloop()
+    root.destroy()
+
+    # Step 3: Apply filters
+    filtered_df = df.copy()
+    columns_used = []
+
+    for col, selected in selected_values.items():
+        columns_used.append(col)
+        if any(v is None for v in selected):
+            filtered_df = filtered_df[
+                filtered_df[col].isin([v for v in selected if v is not None]) | filtered_df[col].isna()
+            ]
+        else:
+            filtered_df = filtered_df[filtered_df[col].isin(selected)]
+
+    # Step 4: Drop rows with NaN in selected float columns
+    float_cols_to_dropna = [col for col, var in float_vars.items() if var.get()]
+    if float_cols_to_dropna:
+        filtered_df = filtered_df.dropna(subset=float_cols_to_dropna)
+
+    return filtered_df
