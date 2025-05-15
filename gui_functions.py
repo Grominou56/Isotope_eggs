@@ -5,7 +5,7 @@ from tkinter import filedialog, ttk
 from pandas.errors import EmptyDataError
 
 
-""" Load spreadsheets and create Pandas dataframe """
+""" Load all spreadsheets from a folder and create a unique Pandas dataframe """
 
 def load_spreadsheets_from_folder():
     root = tk.Tk()
@@ -213,3 +213,38 @@ def filter_dataframe_by_checkboxes(df, max_unique_values=10):
         filtered_df = filtered_df.dropna(subset=float_cols_to_dropna)
 
     return filtered_df
+
+
+""" Load a geotiff file """
+
+def load_file():
+    # Create a Tkinter root window (it won't be shown)
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    root.call('wm', 'attributes', '.', '-topmost', True)  # Bring the file dialog to the front
+    
+    # Open the file dialog to select geotiff file
+    file_path = filedialog.askopenfilename(
+        title="Select a geotiff or netCDF file",
+        filetypes=[
+            ("All files", "*.*"), ("geotiff", "*.tif"), ("NetCDF", "*.nc")
+        ]
+    )
+    if file_path:        
+        print(f"Selected file: {file_path}")
+        return file_path
+
+
+""" Load a folder """
+
+def load_folder():
+    # Create a Tkinter root window (it won't be shown)
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    root.call('wm', 'attributes', '.', '-topmost', True)  # Bring the file dialog to the front
+    
+    # Open the file dialog to select geotiff folder
+    folder_path = filedialog.askdirectory()
+
+    print(f"Selected folder: {folder_path}")
+    return folder_path
