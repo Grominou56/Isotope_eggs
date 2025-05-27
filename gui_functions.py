@@ -3,6 +3,7 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog, ttk
 from pandas.errors import EmptyDataError
+import ezodf
 
 
 """ Load all spreadsheets from a folder and create a unique Pandas dataframe """
@@ -111,24 +112,23 @@ def select_columns_gui(df, max_button_width=15, max_window_height=500, min_butto
 
 def filter_dataframe_by_checkboxes(df, max_unique_values=10):
     selected_values = {}
-    float_columns = [col for col in df.columns if df[col].dtype == 'float64']
+    float_columns = [col for col in df.columns if pd.api.types.is_float_dtype(df[col])]
 
-    # Step 1: Get eligible object columns
+    # 1. Colonnes object éligibles
     eligible_columns = [
         col for col in df.columns
-        if df[col].dtype == 'object' and df[col].nunique(dropna=False) <= max_unique_values
+        if pd.api.types.is_object_dtype(df[col]) and df[col].nunique(dropna=False) <= max_unique_values
     ]
 
     if not eligible_columns and not float_columns:
-        print("No eligible object or float columns.")
+        print("No eligible columns.")
         return df
 
-    # Step 2: Tkinter window
     root = tk.Tk()
     root.title("Filter DataFrame by Values")
     root.geometry("600x700")
 
-    # Frame for float column NaN removal options
+    # 2. Frame pour NaN dans colonnes float
     float_frame = tk.LabelFrame(root, text="Remove rows with NaN in selected float columns")
     float_frame.pack(fill="x", padx=10, pady=5)
 
@@ -139,7 +139,7 @@ def filter_dataframe_by_checkboxes(df, max_unique_values=10):
         cb.pack(anchor="w", padx=10)
         float_vars[col] = var
 
-    # Outer layout: scrollable top + fixed bottom
+    # 3. Scrollable frame pour les colonnes object
     outer_frame = tk.Frame(root)
     outer_frame.pack(fill="both", expand=True)
 
@@ -154,7 +154,6 @@ def filter_dataframe_by_checkboxes(df, max_unique_values=10):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    # Store checkbox variables per object column
     checkbox_vars = {}
 
     for col in eligible_columns:
@@ -170,22 +169,18 @@ def filter_dataframe_by_checkboxes(df, max_unique_values=10):
         for val in values:
             label = str(val) if val is not None else "<NaN>"
             var = tk.BooleanVar(value=False)
-            cb = tk.Checkbutton(frame, text=label, variable=var, anchor="w")
+            cb = tk.Checkbutton(frame, text=label, variable=var)
             cb.pack(anchor="w")
             checkbox_vars[col][val] = var
 
-    # Submit logic
     def submit():
         for col, value_vars in checkbox_vars.items():
-            selected = [
-                val for val, var in value_vars.items()
-                if var.get()
-            ]
+            selected = [val for val, var in value_vars.items() if var.get()]
             if selected:
                 selected_values[col] = selected
         root.quit()
 
-    # Fixed submit button
+    # Bouton appliquer (fixe en bas)
     bottom_frame = tk.Frame(root)
     bottom_frame.pack(fill="x")
     submit_btn = tk.Button(bottom_frame, text="Apply Filter", command=submit)
@@ -194,25 +189,25 @@ def filter_dataframe_by_checkboxes(df, max_unique_values=10):
     root.mainloop()
     root.destroy()
 
-    # Step 3: Apply filters
+    # 4. Application des filtres object
     filtered_df = df.copy()
-    columns_used = []
 
     for col, selected in selected_values.items():
-        columns_used.append(col)
-        if any(v is None for v in selected):
-            filtered_df = filtered_df[
-                filtered_df[col].isin([v for v in selected if v is not None]) | filtered_df[col].isna()
-            ]
-        else:
-            filtered_df = filtered_df[filtered_df[col].isin(selected)]
+        selected_nonan = [v for v in selected if v is not None]
+        mask = filtered_df[col].isin(selected_nonan)
 
-    # Step 4: Drop rows with NaN in selected float columns
-    float_cols_to_dropna = [col for col, var in float_vars.items() if var.get()]
-    if float_cols_to_dropna:
-        filtered_df = filtered_df.dropna(subset=float_cols_to_dropna)
+        if None in selected:
+            mask |= filtered_df[col].isna()
+
+        filtered_df = filtered_df[mask]
+
+    # 5. Suppression des NaN dans colonnes float sélectionnées
+    float_cols_to_drop = [col for col, var in float_vars.items() if var.get()]
+    if float_cols_to_drop:
+        filtered_df = filtered_df.dropna(subset=float_cols_to_drop)
 
     return filtered_df
+
 
 
 """ Load a geotiff file """
@@ -248,3 +243,179 @@ def load_folder():
 
     print(f"Selected folder: {folder_path}")
     return folder_path
+
+""" Load an excel or libreoffice calc or csv file """
+
+def load_table_file():
+    # Initialize Tkinter window (hidden)
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    # Prompt the user to select a file
+    file_path = filedialog.askopenfilename(
+        title="Select a file", 
+        filetypes=[("Excel files", "*.xlsx *.xls"), ("OSD files", "*.ods"), ("CSV files", "*.csv"), ("All files", "*.*")]
+    )
+
+    # Check if a file was selected
+    if file_path:
+        try:
+            if file_path.endswith('.csv'):
+                # Load CSV file
+                df = pd.read_csv(file_path)
+            elif file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+                # Load Excel file
+                df = pd.read_excel(file_path)
+            elif file_path.endswith('.ods'):
+                spreadsheet = ezodf.opendoc(file_path)
+                sheet = spreadsheet.sheets[0]
+                data = []
+                for row in sheet.rows():
+                    row_data = [cell.value for cell in row]
+                    data.append(row_data)
+                header = data[0]
+                data = data[1:]
+                df = pd.DataFrame(data, columns=header)
+            else:
+                print("Unsupported file type")
+                return None
+            
+            print(f"File loaded successfully: {file_path}")
+            return df
+        except Exception as e:
+            print(f"Error loading file: {e}")
+            return None
+    else:
+        print("No file selected")
+        return None
+    
+
+""" Open a windows that create a grid to entry fields and convert it to a pandas dataframe """
+
+import tkinter as tk
+from tkinter import messagebox
+import pandas as pd
+
+class ExcelLikeGridApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Excel-Like Table")
+        self.entries = []
+
+        # Frame for input and buttons
+        input_frame = tk.Frame(master)
+        input_frame.pack(pady=10, anchor="w")
+
+        tk.Label(input_frame, text="Rows:").grid(row=0, column=0)
+        self.row_entry = tk.Entry(input_frame, width=5)
+        self.row_entry.grid(row=0, column=1)
+
+        tk.Label(input_frame, text="Columns:").grid(row=0, column=2)
+        self.col_entry = tk.Entry(input_frame, width=5)
+        self.col_entry.grid(row=0, column=3)
+
+        create_btn = tk.Button(input_frame, text="Create Table", command=self.create_table)
+        create_btn.grid(row=0, column=4, padx=10)
+
+        self.canvas_frame = tk.Frame(master)
+        self.canvas_frame.pack(fill="both", expand=True)
+
+        # Canvas + scrollbar
+        self.canvas = tk.Canvas(self.canvas_frame)
+        self.scrollbar = tk.Scrollbar(self.canvas_frame, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        # Frame inside the canvas for table
+        self.table_frame = tk.Frame(self.canvas)
+        self.canvas.create_window((0, 0), window=self.table_frame, anchor="nw")
+
+        self.table_frame.bind("<Configure>", self.update_scroll_region)
+
+        self.df_button = tk.Button(master, text="Convert to DataFrame", command=self.convert_to_dataframe)
+        self.df_button.pack(pady=10)
+
+    def update_scroll_region(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def create_table(self):
+        # Clear previous table
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
+        self.entries = []
+
+        try:
+            rows = int(self.row_entry.get())
+            cols = int(self.col_entry.get())
+            if rows <= 0 or cols <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid input", "Please enter positive integers for rows and columns.")
+            return
+
+        # Create the table grid
+        for r in range(rows):
+            row_entries = []
+            for c in range(cols):
+                entry = tk.Entry(self.table_frame, width=15)
+                entry.grid(row=r, column=c, padx=1, pady=1)
+                entry.bind("<Control-v>", self.paste_from_clipboard)
+                entry.bind("<Command-v>", self.paste_from_clipboard)
+                row_entries.append(entry)
+            self.entries.append(row_entries)
+
+        self.update_scroll_region()
+
+    def paste_from_clipboard(self, event):
+        try:
+            clipboard = self.master.clipboard_get()
+        except tk.TclError:
+            return "break"
+
+        start_widget = event.widget
+
+        for r, row in enumerate(self.entries):
+            if start_widget in row:
+                start_row = r
+                start_col = row.index(start_widget)
+                break
+        else:
+            return "break"
+
+        lines = clipboard.strip().split('\n')
+        for i, line in enumerate(lines):
+            cells = line.split('\t')
+            for j, cell in enumerate(cells):
+                r = start_row + i
+                c = start_col + j
+                if r < len(self.entries) and c < len(self.entries[0]):
+                    entry = self.entries[r][c]
+                    entry.delete(0, tk.END)
+                    entry.insert(0, cell)
+
+        return "break"
+
+    def convert_to_dataframe(self):
+        data = []
+        for row_entries in self.entries:
+            row_data = [entry.get() for entry in row_entries]
+            data.append(row_data)
+
+        df = pd.DataFrame(data)
+        print("\nGenerated DataFrame:\n", df)
+
+        # Show preview in a new Text widget
+        top = tk.Toplevel(self.master)
+        top.title("DataFrame Preview")
+        text = tk.Text(top, wrap="none", width=100, height=20)
+        text.insert("1.0", df.to_string(index=False))
+        text.pack(padx=10, pady=10)
+
+# Run the app
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.geometry("900x600")  # Optional: force initial window size
+    app = ExcelLikeGridApp(root)
+    root.mainloop()
